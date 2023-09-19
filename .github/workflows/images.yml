@@ -1,0 +1,61 @@
+name: Build images
+
+on:
+  pull_request:
+    paths:
+      - "images/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Get changed files in the images folder
+        id: changed-files
+        uses: tj-actions/changed-files@v34
+        with:
+          files: |
+            images/**
+      - name: Login to Packages Container registry
+        uses: docker/login-action@v1
+        with:
+          registry: "ghcr.io"
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build images
+        run: |-
+          if [ "${GITHUB_EVENT_NAME}" == 'pull_request' ]; then
+            ref="${GITHUB_HEAD_REF}"
+          else
+            ref="${GITHUB_REF_NAME}"
+          fi
+          for i in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            i="${i#images/}"
+            echo "images/${i%%/*}"
+          done | sort -u | while read -r i && [ -e "${i}/Dockerfile" ]; do
+            (cd "${i}"
+            image="${i##images/}"
+            image="${image%%/}"
+            docker build . \
+              --tag "ghcr.io/${GITHUB_REPOSITORY,,}/${image}:${ref//\//-}-${GITHUB_SHA}")
+          done
+      - name: Publish images
+        run: |-
+          if [ "${GITHUB_EVENT_NAME}" == 'pull_request' ]; then
+            ref="${GITHUB_HEAD_REF}"
+          else
+            ref="${GITHUB_REF_NAME}"
+          fi
+          for i in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            i="${i#images/}"
+            echo "images/${i%%/*}"
+          done | sort -u | while read -r i && [ -e "${i}/Dockerfile" ]; do
+            image="${i##images/}"
+            image="${image%%/}"
+            docker push "ghcr.io/${GITHUB_REPOSITORY,,}/${image}:${ref//\//-}-${GITHUB_SHA}"
+          done
